@@ -105,11 +105,44 @@ def icc_desc(path) -> str | None:
     return ImageCms.ImageCmsProfile(io.BytesIO(icc)).profile.profile_description.strip()
 
 
+def build_p3_icc() -> bytes:
+    """A Display P3 ICC v2 profile (P3 primaries, D65 white, sRGB curve), for systems that don't ship one."""
+    import struct
+
+    def tag(sig, body):
+        return sig, body + b"\0" * (-len(body) % 4)
+
+    def s15(*v):
+        return b"".join(struct.pack(">i", round(x * 65536)) for x in v)
+
+    def xyz(*v):
+        return tag(b"", b"XYZ \0\0\0\0" + s15(*v))[1]
+
+    name = b"Display P3"
+    desc = (b"desc\0\0\0\0" + struct.pack(">I", len(name) + 1) + name + b"\0"
+            + b"\0" * 8 + b"\0\0\0" + b"\0" * 67)
+    x = np.linspace(0, 1, 1024)
+    srgb = np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+    curve = b"curv\0\0\0\0" + struct.pack(">I", 1024) + (srgb * 65535).round().astype(">u2").tobytes()
+    tags = [tag(b"desc", desc), tag(b"cprt", b"text\0\0\0\0Public domain\0"),
+            tag(b"wtpt", xyz(0.9642, 1.0, 0.8249)),
+            tag(b"rXYZ", xyz(0.5151, 0.2412, -0.0011)), tag(b"gXYZ", xyz(0.2920, 0.6922, 0.0419)),
+            tag(b"bXYZ", xyz(0.1571, 0.0666, 0.7841)),
+            tag(b"rTRC", curve), tag(b"gTRC", curve), tag(b"bTRC", curve)]
+    offset = 128 + 4 + 12 * len(tags)
+    table, data = b"", b""
+    for sig, body in tags:
+        table += sig + struct.pack(">II", offset + len(data), len(body))
+        data += body
+    size = offset + len(data)
+    header = (struct.pack(">I", size) + b"\0" * 4 + struct.pack(">I", 0x02100000) + b"mntrRGB XYZ "
+              + b"\0" * 12 + b"acsp" + b"\0" * 28 + s15(0.9642, 1.0, 0.8249) + b"\0" * 48)
+    return header + struct.pack(">I", len(tags)) + table + data
+
+
 @pytest.fixture(scope="session")
 def p3() -> bytes:
-    if not P3_PATH.exists():
-        pytest.skip("Display P3 profile not available on this OS")
-    return P3_PATH.read_bytes()
+    return P3_PATH.read_bytes() if P3_PATH.exists() else build_p3_icc()
 
 
 def pytest_configure(config):

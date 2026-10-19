@@ -327,19 +327,16 @@ def test_job_reports_friendly_errors(tmp_path, make, expect):
 
 def test_job_permission_error(tmp_path):
     from dragshift.app import Job
-    folder = tmp_path / "locked"
-    folder.mkdir()
-    src = folder / "a.png"
+    src = tmp_path / "a.png"
     photo(64, 64).save(src)
-    folder.chmod(0o555)
-    try:
-        job = Job("convert:JPG", [str(src)], lambda: convert.convert(src, "image", "JPG"))
-        got = {}
-        job.sig.failed.connect(lambda m: got.setdefault("msg", m))
-        job.run()
-        assert "No permission" in got["msg"]
-    finally:
-        folder.chmod(0o755)
+
+    def locked():  # a read-only folder; raised directly because Windows and root ignore chmod
+        raise PermissionError(13, "Permission denied", str(src.with_suffix(".jpg")))
+    job = Job("convert:JPG", [str(src)], locked)
+    got = {}
+    job.sig.failed.connect(lambda m: got.setdefault("msg", m))
+    job.run()
+    assert "No permission" in got["msg"]
 
 
 def test_job_success_report(tmp_path):
