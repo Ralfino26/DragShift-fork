@@ -304,23 +304,23 @@ jobs:
           make_latest: true
           body: |
             **Windows**
-            - **DragShift-Setup.exe** — recommended. Per-user install (no admin), Start menu, start with Windows, right-click "DragShift…" and Send To.
-            - **DragShift.exe** — portable.
+            - **DragShift-Setup.exe** (recommended): per-user install with no admin rights, Start menu entry, start with Windows, right-click "DragShift…" and Send To.
+            - **DragShift.exe**: portable.
 
             **Mac** (macOS 11+). Easiest, with no security warning, is to paste into Terminal:
-            `curl -fsSL https://raw.githubusercontent.com/llamaboi55/DragShift/main/install-mac.sh | bash`
+            `curl -fsSL https://raw.githubusercontent.com/Ralfino26/DragShift-fork/main/install-mac.sh | bash`
 
             Or download:
-            - **DragShift-mac-apple-silicon.dmg** — M1/M2/M3/M4 Macs.
-            - **DragShift-mac-intel.dmg** — Intel Macs.
+            - **DragShift-mac-apple-silicon.dmg**: M1, M2, M3 and M4 Macs.
+            - **DragShift-mac-intel.dmg**: Intel Macs.
             Open the .dmg and drag DragShift to Applications.
             **First launch (until DragShift is notarized by Apple):** open DragShift once and click **Done** on the warning, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to "DragShift was blocked", and confirm. You only do this once.
             Or in Terminal: `xattr -dr com.apple.quarantine /Applications/DragShift.app`
 
             **Linux** (Debian 12+, Ubuntu 23.04+, Mint, MX… on X11 desktops such as XFCE, MATE, Cinnamon):
-            - **DragShift-linux-amd64.deb** — install with `sudo apt install ./DragShift-linux-amd64.deb`, then open DragShift from the app menu. Works with or without a compositor.
+            - **DragShift-linux-amd64.deb**: install with `sudo apt install ./DragShift-linux-amd64.deb`, then open DragShift from the app menu. Works with or without a compositor.
 
-            Enjoying DragShift? Tips are welcome: [Cash App $AtikaKadesha](https://cash.app/$AtikaKadesha) ♥
+            Enjoying DragShift? Tips are welcome: [Cash App $AtikaKadesha](https://cash.app/$AtikaKadesha).
 
             Built automatically from commit ${{ github.sha }}.
           files: out/*

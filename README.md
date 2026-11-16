@@ -14,7 +14,7 @@ From the [latest release](../../releases/latest):
 **Mac (easiest, no security warning):** paste this into Terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/llamaboi55/DragShift/main/install-mac.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Ralfino26/DragShift-fork/main/install-mac.sh | bash
 ```
 
 It picks the right build for your Mac, installs it to Applications and opens it ([see what it does](install-mac.sh)). Run the same line again to update.
