@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QColorDialog, QComboBox,
                                QPushButton, QSlider, QSpinBox, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from . import imaging
+from . import glass, icons, imaging
 from .util import ui_family
 from .convert import open_image, open_preview
 from .glass import pil_from_qimage, qimage_from_pil
@@ -30,9 +30,41 @@ Notify = Callable[..., None]
 
 # ---------------------------------------------------------------- small widgets
 def section(text: str) -> QLabel:
-    l = QLabel(text.upper())
+    l = QLabel(text)
     l.setObjectName("section")
+    l.setIndent(0)
+    l.setMargin(0)
     return l
+
+
+def icon_button(name: str, label: str = "", tip: str = "") -> QPushButton:
+    """A button with a line icon; icon-only buttons get an accessible name (also used by the E2E tests)."""
+    b = QPushButton(label)
+    b.setIcon(icons.icon(name, 16, glass.TEXT))
+    b.setIconSize(QSize(16, 16))
+    if tip:
+        b.setToolTip(tip)
+    b.setAccessibleName(label or tip)
+    if not label:
+        b.setFixedWidth(34)
+    return b
+
+
+def notice(icon_name: str, text: str, color: str) -> QWidget:
+    """An inline status line: small icon + text in the given colour."""
+    w = QWidget()
+    row = QHBoxLayout(w)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(8)
+    ic = QLabel()
+    ic.setPixmap(icons.pixmap(icon_name, 16, color))
+    ic.setFixedSize(16, 16)
+    row.addWidget(ic)
+    t = QLabel(text)
+    t.setStyleSheet(f"color: {color}; font-weight: 600;")
+    t.setWordWrap(True)
+    row.addWidget(t, 1)
+    return w
 
 
 def slider(lo: int, hi: int, val: int) -> QSlider:
@@ -42,13 +74,17 @@ def slider(lo: int, hi: int, val: int) -> QSlider:
     return s
 
 
-def toggle_row(labels: list[str], checked: int = 0) -> tuple[QHBoxLayout, QButtonGroup]:
+def toggle_row(labels: list, checked: int = 0) -> tuple[QHBoxLayout, QButtonGroup]:
+    """A row of exclusive toggle buttons. Each label is text or (icon name, text)."""
     row = QHBoxLayout()
     row.setSpacing(6)
     grp = QButtonGroup(row)
     grp.setExclusive(True)
     for i, t in enumerate(labels):
-        b = QPushButton(t)
+        if isinstance(t, tuple):
+            b = icon_button(t[0], t[1])
+        else:
+            b = QPushButton(t)
         b.setCheckable(True)
         b.setChecked(i == checked)
         grp.addButton(b, i)
@@ -253,10 +289,11 @@ class CropView(ImageView):
             y = r.top() + r.height() * i / 3
             p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
             p.drawLine(QPointF(r.left(), y), QPointF(r.right(), y))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#ff6a4d"))
+        p.setPen(QPen(QColor(0, 0, 0, 90), 1))
+        p.setBrush(QColor(255, 255, 255))
         for pt in (r.topLeft(), r.topRight(), r.bottomLeft(), r.bottomRight()):
-            p.drawEllipse(pt, 5.5, 5.5)
+            p.drawRect(QRectF(pt.x() - 4.5, pt.y() - 4.5, 9, 9))
+        p.setPen(Qt.NoPen)
         # live output size badge
         txt = dims_text(round(self.sel.width() * self.k), round(self.sel.height() * self.k))
         f = QFont(ui_family(False))
@@ -267,8 +304,8 @@ class CropView(ImageView):
         badge = QRectF(r.center().x() - w / 2, r.bottom() - 30, w, 22)
         if badge.top() < r.top() + 4:
             badge.moveTop(r.bottom() + 6)
-        p.setBrush(QColor(20, 16, 32, 190))
-        p.drawRoundedRect(badge, 11, 11)
+        p.setBrush(QColor(20, 20, 24, 200))
+        p.drawRoundedRect(badge, 4, 4)
         p.setPen(QColor(255, 255, 255))
         p.drawText(badge, Qt.AlignCenter, txt)
 
@@ -297,9 +334,8 @@ class CropWindow(ToolWindow):
         self.body.addWidget(section("Aspect ratio"))
         row, self.grp = toggle_row([n for n, _ in self.RATIOS])
         self.grp.idClicked.connect(self._ratio)
-        for txt, d in (("⟲", -90), ("⟳", 90)):
-            b = QPushButton(txt)
-            b.setToolTip("Rotate 90°")
+        for name, tip, d in (("rotate-ccw", "Rotate left", -90), ("rotate-cw", "Rotate right", 90)):
+            b = icon_button(name, tip=tip)
             b.clicked.connect(lambda _=False, d=d: self._rotate(d))
             row.addWidget(b)
         self.body.addLayout(row)
@@ -456,12 +492,17 @@ class AddBgWindow(ToolWindow):
             b.setToolTip(PRESETS[i][0] if i < len(PRESETS) else cols[0])
             b.clicked.connect(lambda _=False, c=cols: self._pick(c))
             self.sw_grp.addButton(b, i)
-            sw.addWidget(b, i // 12, i % 12)
-        custom = QPushButton("＋")
+            sw.addWidget(b, i // 13, i % 13)
+        custom = QPushButton()
         custom.setObjectName("swatch")
+        custom.setIcon(icons.icon("plus", 14, glass.TEXT))
+        custom.setIconSize(QSize(14, 14))
+        custom.setStyleSheet(f"background: {glass.SURFACE_RAISED};")
         custom.setToolTip("Custom colour")
+        custom.setAccessibleName("Custom colour")
         custom.clicked.connect(self._custom)
-        sw.addWidget(custom, len(items) // 12, len(items) % 12)
+        sw.addWidget(custom, len(items) // 13, len(items) % 13)
+        sw.setColumnStretch(13, 1)
         self.body.addLayout(sw)
 
         grid = QGridLayout()
@@ -548,7 +589,7 @@ class AddBgWindow(ToolWindow):
 
     def copy(self):
         QGuiApplication.clipboard().setImage(qimage_from_pil(self._compose_full()))
-        self.copy_btn.setText("Copied ✓")
+        self.copy_btn.setText("Copied")
         QTimer.singleShot(1400, lambda: self.copy_btn.setText("Copy"))
 
     def save(self):
@@ -717,7 +758,8 @@ class AnnotateWindow(ToolWindow):
         self.view = AnnotateView(qimage_from_pil(pv), self)
         self.body.addWidget(self.view, 1)
 
-        row, grp = toggle_row(["➜ Arrow", "▢ Box", "◯ Circle", "✎ Pen", "▬ Marker", "T Text", "① Step"])
+        row, grp = toggle_row([("arrow", "Arrow"), ("box", "Box"), ("circle", "Circle"), ("pen", "Pen"),
+                               ("marker", "Marker"), ("text", "Text"), ("step", "Step")])
         grp.idClicked.connect(lambda i: setattr(self, "tool", self.TOOLS[i]))
         undo = QPushButton("Undo")
         undo.clicked.connect(self.undo)
@@ -815,7 +857,7 @@ class RedactView(ImageView):
 
     def paint_overlay(self, p, t):
         if self.cur is not None:
-            p.setPen(QPen(QColor("#ff5f6d"), 1.5, Qt.DashLine))
+            p.setPen(QPen(QColor(255, 255, 255, 220), 1.5, Qt.DashLine))
             p.setBrush(QColor(0, 0, 0, 90))
             p.drawRect(self.rect_to_widget(self.cur))
 
@@ -832,7 +874,9 @@ class RedactWindow(ToolWindow):
         self.k = full[0] / self.base.width
         self.view = RedactView(qimage_from_pil(self.base), self)
         self.body.addWidget(self.view, 1)
-        self.hint = QLabel("Drag over anything you want hidden. It's burned into the pixels — it can't be undone in the copy.")
+        self.hint = QLabel("Drag over anything you want to hide. It is permanently removed from the saved copy; "
+                           "the original stays unchanged.")
+        self.hint.setWordWrap(True)
         self.hint.setObjectName("dim")
         self.body.addWidget(self.hint)
         row, self.mode = toggle_row(self.MODES)
@@ -909,13 +953,14 @@ class EditWindow(ToolWindow):
         self.body.addLayout(grid)
 
         row = QHBoxLayout()
-        auto = QPushButton("✦ Auto")
-        auto.setToolTip("Automatic light and colour")
+        auto = icon_button("auto", "Auto", "Automatic light and colour")
         auto.clicked.connect(self.auto)
         row.addWidget(auto)
-        for text, fn in (("⟲", lambda: self._rot(-90)), ("⟳", lambda: self._rot(90)),
-                         ("⇋ Flip", lambda: self._flip("h")), ("⇵ Flip", lambda: self._flip("v"))):
-            b = QPushButton(text)
+        for name, tip, fn in (("rotate-ccw", "Rotate left", lambda: self._rot(-90)),
+                              ("rotate-cw", "Rotate right", lambda: self._rot(90)),
+                              ("flip-h", "Flip horizontally", lambda: self._flip("h")),
+                              ("flip-v", "Flip vertically", lambda: self._flip("v"))):
+            b = icon_button(name, tip=tip)
             b.clicked.connect(fn)
             row.addWidget(b)
         self.gray = QPushButton("B&&W")
@@ -1022,7 +1067,7 @@ class MetadataWindow(ToolWindow):
     tool_name = "Metadata"
 
     def __init__(self, path, notify, is_pdf: bool = False):
-        super().__init__("Metadata", path, notify, size=(640, 380))
+        super().__init__("Metadata", path, notify, size=(600, 340))
         self.is_pdf = is_pdf
         info = imaging.read_pdf_metadata(path) if is_pdf else imaging.read_image_metadata(path)
         summary = {} if is_pdf else imaging.metadata_summary(path)
@@ -1033,6 +1078,7 @@ class MetadataWindow(ToolWindow):
         cl = QGridLayout(card)
         cl.setContentsMargins(14, 12, 14, 12)
         cl.setHorizontalSpacing(16)
+        cl.setColumnStretch(1, 1)
         rows = summary or {k: v for k, v in info.items() if k in ("title", "author", "creator", "producer", "Pages")}
         if not rows:
             rows = {"": "No personal metadata found."}
@@ -1052,12 +1098,14 @@ class MetadataWindow(ToolWindow):
                 cl.addWidget(mb, i, 2)
         self.body.addWidget(card)
         if self.has_gps:
-            warn = QLabel("⚠  This photo reveals where it was taken.")
-            warn.setObjectName("warn")
-            self.body.addWidget(warn)
+            self.body.addWidget(notice("alert", "This photo contains the location where it was taken.",
+                                       glass.WARNING))
 
         self.toggle = QPushButton(f"Show all {self.n_fields} fields")
+        self.toggle.toggled.connect(lambda on: self.toggle.setText(
+            "Hide fields" if on else f"Show all {self.n_fields} fields"))
         self.toggle.setCheckable(True)
+        self.toggle.setVisible(self.n_fields > 0)
         self.body.addWidget(self.toggle, 0, Qt.AlignLeft)
         t = QTableWidget(len(info), 2)
         t.setHorizontalHeaderLabels(["Field", "Value"])
@@ -1072,7 +1120,7 @@ class MetadataWindow(ToolWindow):
 
         def show_all(on):
             t.setVisible(on)
-            self.resize(self.width(), 640 if on else 380)
+            self.resize(self.width(), 640 if on else 340)
         self.toggle.toggled.connect(show_all)
         self.body.addWidget(t, 1)
         self.body.addStretch(0)
@@ -1118,6 +1166,7 @@ class CompressWindow(ToolWindow):
         self.q_box = QWidget()
         g = QGridLayout(self.q_box)
         g.setContentsMargins(0, 0, 0, 0)
+        g.setColumnMinimumWidth(0, 72)
         self.q = slider(10, 95, 72)
         slider_row(g, 0, "Quality", self.q, lambda v: f"{v}")
         self.body.addWidget(self.q_box)
@@ -1125,6 +1174,7 @@ class CompressWindow(ToolWindow):
         self.t_box = QWidget()
         tl = QHBoxLayout(self.t_box)
         tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(6)
         tl.addWidget(QLabel("Make each file under"))
         self.tgrp = QButtonGroup(self)
         for i, (lbl, _) in enumerate(self.TARGETS):
@@ -1138,6 +1188,9 @@ class CompressWindow(ToolWindow):
         self.body.addWidget(self.t_box)
 
         g2 = QGridLayout()
+        g2.setColumnMinimumWidth(0, 72)
+        g2.setColumnStretch(1, 1)
+        g2.setColumnMinimumWidth(2, 56)
         g2.addWidget(QLabel("Size"), 0, 0)
         self.side = QComboBox()
         for name, _ in self.SIDES:
@@ -1155,7 +1208,7 @@ class CompressWindow(ToolWindow):
             col = QVBoxLayout()
             lab.setFixedSize(270, 170)
             lab.setAlignment(Qt.AlignCenter)
-            lab.setStyleSheet("border-radius: 12px; background: rgba(0,0,0,0.25);")
+            lab.setStyleSheet(f"border-radius: 6px; background: {glass.SURFACE_RAISED}; border: 1px solid {glass.BORDER};")
             c = QLabel(cap)
             c.setObjectName("dim")
             col.addWidget(lab)
@@ -1257,7 +1310,7 @@ class CompressWindow(ToolWindow):
             self.saving.setText(f"≈ {pct:.0f}% smaller · {fmt}" + (f" · {note}" if note else ""))
         else:
             self.saving.setObjectName("warn")
-            self.saving.setText("Already well compressed — try a smaller size or WebP")
+            self.saving.setText("Already well compressed. Try a smaller size or WebP.")
         self.saving.style().unpolish(self.saving)
         self.saving.style().polish(self.saving)
 
@@ -1301,13 +1354,13 @@ class ResizeWindow(ToolWindow):
                ("2560", "long", 2560), ("1920", "long", 1920), ("1280", "long", 1280), ("800", "long", 800)]
 
     def __init__(self, paths, notify):
-        super().__init__("Resize", paths, notify, size=(600, 380))
+        super().__init__("Resize", paths, notify, size=(600, 340))
         with Image.open(self.path) as im:
             w, h = im.size
             if im.getexif().get(0x0112, 1) in (5, 6, 7, 8):
                 w, h = h, w
         self.orig = (w, h)
-        self.body.addWidget(section("Presets — percent or longest side in px"))
+        self.body.addWidget(section("Scale, or longest side in pixels"))
         row, self.grp = toggle_row([p[0] for p in self.PRESETS], 1)
         self.grp.idClicked.connect(self._preset)
         self.body.addLayout(row)
@@ -1382,7 +1435,7 @@ class ProtectWindow(ToolWindow):
     tool_name = "Protect"
 
     def __init__(self, path, notify):
-        super().__init__("Password-protect PDF", path, notify, size=(520, 330))
+        super().__init__("Password-protect PDF", path, notify, size=(500, 280))
         g = QGridLayout()
         self.pw = QLineEdit()
         self.pw2 = QLineEdit()
@@ -1418,7 +1471,7 @@ class ProtectWindow(ToolWindow):
             self.msg.setText("Passwords don't match yet.")
         elif ok:
             strength = "strong" if len(a) >= 12 else "okay" if len(a) >= 8 else "weak"
-            self.msg.setText(f"Looks good · {strength} password")
+            self.msg.setText(f"Passwords match. Strength: {strength}.")
         else:
             self.msg.setText("AES-256 encryption. Anyone opening the PDF will need this password.")
 

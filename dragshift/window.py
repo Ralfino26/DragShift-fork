@@ -1,49 +1,49 @@
-"""Frameless liquid-glass window + an image view used by all editors."""
+"""Frameless editor window (solid surface, own title bar) + an image view used by all editors."""
 from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
+from PySide6.QtCore import QPoint, QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSizeGrip, QVBoxLayout,
                                QWidget)
 
-from . import glass
-
-IS_WIN = sys.platform == "win32"
+from . import glass, icons
 
 
 class GlassWindow(QWidget):
-    """Top-level glass window with its own title bar. Put content in `self.body`."""
+    """Top-level window with its own title bar. Put content in `self.body`.
+    (Name kept for compatibility; editor windows are solid, not glass.)"""
 
     def __init__(self, title: str, parent=None, size=(760, 640)):
         super().__init__(parent)
-        self.setWindowTitle(f"{title} — DragShift")
+        self.setWindowTitle(f"{title} - DragShift")
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground)      # for the rounded corners
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setObjectName("glassRoot")
         self.setStyleSheet(glass.QSS)
         self.resize(*size)
         self._drag: QPoint | None = None
-        self._acrylic = False
-        self.radius = 18
-        self.liquid = glass.LiquidBacking(self, self.radius)
-        self.liquid.changed.connect(self.update)
-        self._fade = 0.0
+        self.radius = 10
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 8, 14, 12)
-        outer.setSpacing(8)
+        outer.setContentsMargins(20, 12, 20, 16)
+        outer.setSpacing(12)
 
         bar = QHBoxLayout()
+        bar.setContentsMargins(0, 0, 0, 0)
         self.title_label = QLabel(title)
         self.title_label.setObjectName("title")
         bar.addWidget(self.title_label)
         bar.addStretch(1)
-        close = QPushButton("✕")
+        close = QPushButton()
         close.setObjectName("chrome")
+        close.setIcon(icons.icon("close", 14, glass.TEXT_DIM))
+        close.setIconSize(QSize(14, 14))
+        close.setFixedSize(28, 28)
         close.setToolTip("Close (Esc)")
+        close.setAccessibleName("Close")
         close.clicked.connect(self.close)
         bar.addWidget(close)
         outer.addLayout(bar)
@@ -52,23 +52,19 @@ class GlassWindow(QWidget):
         self.body.setSpacing(10)
         outer.addLayout(self.body, 1)
 
-        grip_row = QHBoxLayout()
-        grip_row.addStretch(1)
         grip = QSizeGrip(self)
-        grip.setFixedSize(14, 14)
-        grip_row.addWidget(grip)
-        grip_row.setContentsMargins(0, 0, 0, 0)
-        outer.addLayout(grip_row)
+        grip.setFixedSize(12, 12)
+        grip.setStyleSheet("background: transparent;")
+        self._grip = grip
 
     # ---- window behaviour
     def present(self):
-        """Centre on the cursor's screen, capture what's behind, then show."""
+        """Centre on the cursor's screen, then show."""
         from PySide6.QtGui import QCursor, QGuiApplication
         scr = (QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()).availableGeometry()
         self.resize(min(self.width(), scr.width() - 40), min(self.height(), scr.height() - 40))
         self.move(scr.center() - self.rect().center())
         self._placed = True
-        self.liquid.capture_at(self.frameGeometry())
         self.show()
         if sys.platform == "darwin":
             from . import platform_mac
@@ -82,29 +78,11 @@ class GlassWindow(QWidget):
             scr = self.screen().availableGeometry()
             self.move(scr.center() - self.rect().center())
             self._placed = True
-            self.liquid.capture_at(self.frameGeometry())
-        self.liquid.excluded = glass.exclude_from_capture(int(self.winId()))
-
-    def moveEvent(self, e):
-        super().moveEvent(e)
-        self._stale()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        self._grip.move(self.width() - self._grip.width() - 2, self.height() - self._grip.height() - 2)
         glass.apply_shape(self, glass.rounded_rect_path(QRectF(self.rect()), self.radius))
-        self._stale()
-
-    def _stale(self):
-        if not self.isVisible():
-            return
-        if self.liquid.excluded:
-            self.liquid.moved()
-        elif self.liquid.image is not None:
-            # can't re-capture behind ourselves: switch to the system blur instead
-            self.liquid.image = None
-            if IS_WIN and not self._acrylic:
-                self._acrylic = glass.enable_acrylic(int(self.winId()))
-            self.update()
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
@@ -113,7 +91,7 @@ class GlassWindow(QWidget):
             super().keyPressEvent(e)
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton and e.position().y() < 40:
+        if e.button() == Qt.LeftButton and e.position().y() < 44:
             handle = self.windowHandle()
             if handle is not None and handle.startSystemMove():
                 return  # native move: snapping etc.
@@ -131,14 +109,9 @@ class GlassWindow(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         path = glass.rounded_rect_path(r, self.radius)
-        img = self.liquid.image
-        if img is not None and not img.isNull() and img.size() == self.size():
-            p.drawImage(0, 0, img)
-            # large surfaces need more opacity than a menu so content stays readable
-            glass.paint_glass(p, path, tint=QColor(22, 17, 34, 150), rainbow_alpha=150)
-        else:
-            tint = QColor(30, 24, 44, 125) if self._acrylic else QColor(38, 30, 56, 228)
-            glass.paint_glass(p, path, tint=tint, rainbow_alpha=150)
+        p.fillPath(path, QColor(glass.SURFACE))
+        p.setPen(QPen(QColor(255, 255, 255, 26), 1))
+        p.drawPath(path)
 
 
 class ImageView(QWidget):
@@ -195,7 +168,18 @@ class ImageView(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         t = self.target_rect()
         # checkerboard so transparency is visible
-        p.fillRect(t, QColor(255, 255, 255, 30))
+        p.save()
+        p.setClipRect(t)
+        cell = 8
+        p.fillRect(t, QColor(58, 58, 64))
+        y = int(t.top())
+        while y < t.bottom():
+            x = int(t.left()) + (cell if ((y - int(t.top())) // cell) % 2 else 0)
+            while x < t.right():
+                p.fillRect(x, y, cell, cell, QColor(74, 74, 80))
+                x += cell * 2
+            y += cell
+        p.restore()
         p.drawPixmap(t, self.pix, QRectF(self.pix.rect()))
         self.paint_overlay(p, t)
 

@@ -108,11 +108,12 @@ class SettingsWindow(GlassWindow):
     changed = Signal()
 
     def __init__(self, settings: Settings):
-        super().__init__("Settings", size=(520, 470))
+        super().__init__("Settings", size=(500, 330))
         self.s = settings
         grid = QGridLayout()
-        grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(12)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(1, 1)
         r = 0
 
         def combo(options, current):
@@ -128,7 +129,7 @@ class SettingsWindow(GlassWindow):
         self.trigger.currentIndexChanged.connect(lambda _: self._save("trigger", self.trigger.currentData()))
         grid.addWidget(self.trigger, r, 1)
         r += 1
-        hint = QLabel("…pressed while you’re dragging a file")
+        hint = QLabel("Pressed while you drag a file")
         hint.setObjectName("dim")
         grid.addWidget(hint, r, 1)
         r += 1
@@ -168,14 +169,14 @@ class SettingsWindow(GlassWindow):
         if IS_MAC:
             from . import platform_mac
             if not platform_mac.has_screen_recording():
-                glass_btn = QPushButton("Enable full liquid glass…")
-                glass_btn.setToolTip("Lets the glass refract the windows behind it (Screen Recording permission)")
+                glass_btn = QPushButton("Allow Screen Recording…")
+                glass_btn.setToolTip("Lets the menu show the windows behind it. Nothing is saved or sent.")
                 glass_btn.clicked.connect(platform_mac.request_screen_recording)
                 grid.addWidget(glass_btn, r, 1)
                 r += 1
         self.body.addLayout(grid)
         self.body.addStretch(1)
-        about = QLabel(f"DragShift {__version__}  ·  originals are never modified")
+        about = QLabel(f"DragShift {__version__}. Originals are never modified.")
         about.setObjectName("dim")
         foot = QHBoxLayout()
         foot.addWidget(about)
@@ -193,40 +194,45 @@ class SettingsWindow(GlassWindow):
 
 class WelcomeWindow(GlassWindow):
     def __init__(self, settings: Settings, trigger_label: str = "Shift"):
-        super().__init__("Welcome to DragShift", size=(560, 430))
+        super().__init__("Welcome to DragShift", size=(500, 320))
         self.s = settings
+        where = ("in Finder or on the desktop" if IS_MAC else
+                 "in your file manager or on the desktop" if IS_LINUX else
+                 "in File Explorer or on the desktop")
         steps = [
-            ("1", "Start dragging any file", "in Finder or on the desktop" if IS_MAC else
-             "in your file manager (Thunar, Nautilus…)" if IS_LINUX else "in File Explorer or on the desktop"),
-            ("2", f"Press {trigger_label}", "the glass menu opens right under your cursor"),
-            ("3", "Drop it on a slice", "the result is saved next to the original"),
-            ("⇄", f"Tap {trigger_label} again", "to switch between Convert and Tools"),
+            ("Start dragging a file", where[0].upper() + where[1:] + "."),
+            (f"Press {trigger_label}", "A menu opens under your cursor."),
+            ("Drop the file on an action", "The result is saved next to the original."),
         ]
-        for n, head, sub in steps:
+        self.body.setSpacing(14)
+        for i, (head, sub) in enumerate(steps, 1):
             row = QHBoxLayout()
-            badge = QLabel(n)
-            badge.setAlignment(Qt.AlignCenter)
-            badge.setFixedSize(34, 34)
-            badge.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #ff8a5c, stop:1 #ff4f8b);"
-                                "border-radius: 17px; font-weight: 700; font-size: 12pt;")
-            row.addWidget(badge)
+            row.setSpacing(12)
+            num = QLabel(str(i))
+            num.setObjectName("stepNum")
+            num.setAlignment(Qt.AlignCenter)
+            num.setFixedSize(24, 24)
+            row.addWidget(num, 0, Qt.AlignTop)
             col = QVBoxLayout()
-            col.setSpacing(0)
+            col.setSpacing(2)
             h = QLabel(head)
-            h.setStyleSheet("font-size: 12pt; font-weight: 600;")
+            h.setStyleSheet("font-weight: 600;")
             d = QLabel(sub)
             d.setObjectName("dim")
             col.addWidget(h)
             col.addWidget(d)
-            row.addSpacing(8)
             row.addLayout(col, 1)
             self.body.addLayout(row)
-        self.body.addStretch(1)
+        tip = QLabel(f"Press {trigger_label} again while the menu is open to switch between Convert and Tools.")
+        tip.setObjectName("dim")
+        tip.setWordWrap(True)
+        self.body.addSpacing(4)
+        self.body.addWidget(tip)
         if IS_MAC:
             from . import platform_mac
             if not platform_mac.has_screen_recording():
-                note = QLabel("Optional: allow Screen Recording so the glass can refract the windows "
-                              "behind it (otherwise it shows your wallpaper). DragShift never saves or sends it.")
+                note = QLabel("Optional: allow Screen Recording so the menu can show the windows behind it. "
+                              "Without it, it shows your wallpaper. Nothing is saved or sent.")
                 note.setObjectName("dim")
                 note.setWordWrap(True)
                 self.body.addWidget(note)
@@ -236,18 +242,19 @@ class WelcomeWindow(GlassWindow):
         if IS_LINUX:
             from . import platform_linux
             if platform_linux.is_wayland():
-                note = QLabel("You're on a Wayland session: the Shift-while-dragging trigger needs X11 (e.g. XFCE). "
-                              "Right-click a file → Open With → DragShift still works.")
+                note = QLabel("This is a Wayland session, where the drag trigger doesn't work. Use an X11 "
+                              "session (such as XFCE), or right-click a file and choose Open With > DragShift.")
                 note.setObjectName("warn")
                 note.setWordWrap(True)
                 self.body.addWidget(note)
+        self.body.addStretch(1)
         foot = QHBoxLayout()
         if IS_WIN or IS_MAC or IS_LINUX:
             self.auto = QCheckBox("Start with Windows" if IS_WIN else "Open at login")
             self.auto.setChecked(True)
             foot.addWidget(self.auto)
         foot.addStretch(1)
-        ok = QPushButton("Got it")
+        ok = QPushButton("Get started")
         ok.setObjectName("primary")
         ok.clicked.connect(self._done)
         foot.addWidget(ok)

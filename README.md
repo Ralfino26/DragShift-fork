@@ -1,8 +1,8 @@
 # DragShift
 
-Convert and edit files on **Windows, Mac and Linux** with a liquid-glass radial menu. Start dragging any file, press **Shift**, and drop it on a slice.
+Convert and edit files on **Windows, Mac and Linux** from a radial menu. Start dragging any file, press **Shift**, and drop it on an action.
 
-![DragShift radial menu and Add BG editor](docs/preview.png)
+![The DragShift menu (Convert and Tools) and its notifications](docs/preview.png)
 
 ## Download
 
@@ -31,7 +31,7 @@ Open the .dmg and drag **DragShift** into Applications. DragShift lives in the m
 sudo apt install ./DragShift-linux-amd64.deb
 ```
 
-Open **DragShift** from the app menu. It sits in the panel's notification area, and you can turn on *Start at login* in Settings. It works in Thunar, Nautilus, Nemo, Caja, Dolphin and on the desktop, and it also adds **Open With → DragShift** to file right-click menus. It works with or without a compositor: when compositing is off (common on XFCE), the menu and windows are cut to their exact shape, so you won't see black boxes. Builds target Debian 12 or newer (Ubuntu 23.04+).
+Open **DragShift** from the app menu. It sits in the panel's notification area, and you can turn on *Start at login* in Settings. It works in Thunar, Nautilus, Nemo, Caja, Dolphin and on the desktop, and it also adds **Open With → DragShift** to file right-click menus. It works with or without a compositor. When compositing is off (common on XFCE), the menu and windows are cut to their exact shape, so no black boxes appear around them. Builds target Debian 12 or newer (Ubuntu 23.04+).
 
 > **Wayland:** Wayland doesn't let apps read the global Shift and mouse state, so the Shift + drag trigger only works in X11 sessions (XFCE is X11). On GNOME/KDE Wayland, use right-click → **Open With → DragShift**, or pick *"Ubuntu on Xorg"* / *"Plasma (X11)"* at the login screen.
 
@@ -45,13 +45,13 @@ Open **DragShift** from the app menu. It sits in the panel's notification area, 
 > Or, in Terminal: `xattr -dr com.apple.quarantine /Applications/DragShift.app`
 > (On macOS 15 and later, the old right-click → Open shortcut no longer skips this warning.)
 >
-> **Mac, optional:** allow **Screen Recording** when DragShift asks, so the glass can refract the windows behind it. Without it, the glass shows your wallpaper. Nothing is ever saved or sent.
+> **Mac, optional:** allow **Screen Recording** when DragShift asks, so the menu can show the windows behind it. Without it, the menu shows your wallpaper. Nothing is ever saved or sent.
 
 ## How to use
 
 1. Start dragging a file in File Explorer, Finder, your Linux file manager or on the desktop.
 2. Press **Shift**. The menu opens under your cursor.
-3. Drop the file on a slice. The result is saved **next to the original**, and the original is never changed.
+3. Drop the file on an action. The result is saved **next to the original**, and the original is never changed.
 4. To switch between **Convert** and **Tools**, tap **Shift** again.
 
 Each action ends with a notification that shows what changed, for example *"2.4 MB → 610 KB · 75% smaller"* or *"2400×1600 → 1200×800"*, with **Open**, **Show in folder** and **Undo**. Undo moves the new file to the Recycle Bin (Trash on Mac and Linux).
@@ -71,7 +71,7 @@ You can also right-click a file → **DragShift…**, use **Send to → DragShif
 
 ## The look
 
-The menu, notifications and windows use real **liquid-glass** rendering. DragShift captures the screen behind each surface and refracts it through the shape. A curved edge bends light, R, G and B bend by slightly different amounts (which gives the rainbow fringe), a highlight runs along the rim facing the light, and the tint adapts to what's behind it so text stays readable. The menu renders on a background thread while it pops in, so it still opens instantly.
+The menu and notifications float over other apps, so they are glass: DragShift captures the screen behind them and refracts it through the shape, with a neutral tint that switches between light and dark text depending on what's underneath. The refraction renders on a background thread, so the menu still opens instantly. Editor windows (Crop, Edit, Compress and so on) use a plain dark surface, so the image you're working on is the only thing competing for attention.
 
 ## Tested on real desktops
 

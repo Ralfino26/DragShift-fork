@@ -1,5 +1,7 @@
-"""Liquid-glass look: frosted blur, specular highlights and an iridescent (rainbow)
-rim. Used by the radial menu and every editor window."""
+"""Visual system: colour tokens, the Qt stylesheet and the glass surface painter.
+
+Glass (a refracted snapshot of what's behind) is used only for surfaces that float over
+other apps: the radial menu and notifications. Editor windows are solid."""
 from __future__ import annotations
 
 import ctypes
@@ -7,37 +9,28 @@ import os
 import sys
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QImage, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPixmap, QRadialGradient)
+from PySide6.QtGui import (QBrush, QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPen,
+                           QPixmap)
 
-# Rainbow stops for the iridescent rim (soft, pastel-ish so it reads as "glass").
-IRIDESCENT = ["#ff6b9d", "#ffb36b", "#ffe66b", "#7dffb0", "#6bd5ff", "#8a7bff", "#e07bff", "#ff6b9d"]
+# ---------------------------------------------------------------- tokens
+TEXT = "#f2f2f3"
+TEXT_DIM = "#a1a1a8"            # 7:1 on SURFACE
+SURFACE = "#1c1c1f"             # window background
+SURFACE_RAISED = "#26262b"      # controls, cards
+SURFACE_HOVER = "#303036"
+BORDER = "#36363d"
+ACCENT = "#2f6fed"              # white text on it: 4.6:1
+ACCENT_HOVER = "#3d7bf2"
+ACCENT_PRESSED = "#285fd0"
+SUCCESS = "#4cc38a"
+WARNING = "#e8b04b"
+DANGER = "#f06a6a"
 
-TEXT = "#ffffff"
-TEXT_DIM = "rgba(255,255,255,0.68)"
-ACCENT_A = "#ff8a5c"
-ACCENT_B = "#ff4f8b"
-ACCENT_C = "#8a6bff"
-
-
-def iridescent_pen(center: QPointF, width: float, alpha: int = 200, angle: float = 30) -> QPen:
-    g = QConicalGradient(center, angle)
-    n = len(IRIDESCENT) - 1
-    for i, c in enumerate(IRIDESCENT):
-        col = QColor(c)
-        col.setAlpha(alpha)
-        g.setColorAt(i / n, col)
-    return QPen(QBrush(g), width)
+GLASS_TINT = (22, 22, 26)       # neutral tint laid over refracted glass
 
 
-def iridescent_brush(rect: QRectF, alpha: int = 60) -> QBrush:
-    g = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    n = len(IRIDESCENT) - 1
-    for i, c in enumerate(IRIDESCENT):
-        col = QColor(c)
-        col.setAlpha(alpha)
-        g.setColorAt(i / n, col)
-    return QBrush(g)
+def glass_tint(alpha: int) -> QColor:
+    return QColor(*GLASS_TINT, alpha)
 
 
 def blur_pixmap(pm: QPixmap, radius: int = 18) -> QPixmap:
@@ -54,133 +47,148 @@ def blur_pixmap(pm: QPixmap, radius: int = 18) -> QPixmap:
 
 def paint_glass(p: QPainter, path: QPainterPath, backdrop: QPixmap | None = None,
                 backdrop_offset: QPointF = QPointF(0, 0), tint: QColor | None = None,
-                rim: bool = True, rainbow_alpha: int = 170, highlight: float = 1.0) -> None:
-    """Paint a liquid-glass surface filling `path`."""
+                rim: bool = True, highlight: float = 1.0) -> None:
+    """Paint a glass surface filling `path`: backdrop, tint, a faint top sheen and a hairline rim."""
     rect = path.boundingRect()
     p.save()
     p.setRenderHint(QPainter.Antialiasing)
     p.setClipPath(path)
-
-    # 1. frosted backdrop (blurred desktop snapshot), slightly magnified = refraction
     if backdrop is not None and not backdrop.isNull():
         p.save()
         c = rect.center()
         p.translate(c)
-        p.scale(1.04, 1.04)
+        p.scale(1.04, 1.04)          # slight magnification reads as refraction
         p.translate(-c)
         p.drawPixmap(backdrop_offset, backdrop)
         p.restore()
-
-    # 2. tint – keeps white text readable on any wallpaper
-    p.fillPath(path, tint or QColor(28, 24, 40, 105))
-
-    # 3. faint rainbow wash across the body
-    p.fillPath(path, iridescent_brush(rect, 26))
-
-    # 4. top specular sheen
-    sheen = QLinearGradient(rect.topLeft(), QPointF(rect.left(), rect.top() + rect.height() * 0.55))
-    sheen.setColorAt(0.0, QColor(255, 255, 255, int(70 * highlight)))
+    p.fillPath(path, tint or glass_tint(110))
+    sheen = QLinearGradient(rect.topLeft(), QPointF(rect.left(), rect.top() + rect.height() * 0.5))
+    sheen.setColorAt(0.0, QColor(255, 255, 255, int(28 * highlight)))
     sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
     p.fillPath(path, sheen)
-
-    # 5. soft caustic glow lower-right
-    glow = QRadialGradient(QPointF(rect.right() - rect.width() * 0.2, rect.bottom() - rect.height() * 0.15),
-                           max(rect.width(), rect.height()) * 0.55)
-    glow.setColorAt(0.0, QColor(255, 255, 255, int(22 * highlight)))
-    glow.setColorAt(1.0, QColor(255, 255, 255, 0))
-    p.fillPath(path, glow)
     p.restore()
 
     if rim:
         p.save()
         p.setRenderHint(QPainter.Antialiasing)
-        # inner bezel glow: a wide, soft white stroke clipped to the inside of the shape
-        p.setClipPath(path)
-        for w, a in ((14, 10), (7, 16), (3, 26)):
-            p.setPen(QPen(QColor(255, 255, 255, int(a * highlight)), w))
-            p.drawPath(path)
-        p.setClipping(False)
-        # specular rim: bright on the edge facing the light (top-left), softer opposite
-        spec = QLinearGradient(rect.topLeft(), rect.bottomRight())
-        spec.setColorAt(0.0, QColor(255, 255, 255, int(235 * min(1.0, highlight))))
-        spec.setColorAt(0.35, QColor(255, 255, 255, 60))
-        spec.setColorAt(0.65, QColor(255, 255, 255, 35))
-        spec.setColorAt(1.0, QColor(255, 255, 255, 150))
-        p.setPen(QPen(QBrush(spec), 1.3))
+        edge = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        edge.setColorAt(0.0, QColor(255, 255, 255, int(110 * min(1.0, highlight))))
+        edge.setColorAt(1.0, QColor(255, 255, 255, 40))
+        p.setPen(QPen(QBrush(edge), 1.0))
         p.drawPath(path)
-        # iridescent dispersion just outside the rim
-        p.setPen(iridescent_pen(rect.center(), 1.4, rainbow_alpha))
-        p.drawPath(path.translated(0.0, 0.0))
         p.restore()
 
 
 # ---------------------------------------------------------------- Qt stylesheet
 _QSS = f"""
-* {{ color: {TEXT}; font-family: "@FONT@", sans-serif; font-size: 10pt; }}
+* {{ color: {TEXT}; font-family: "@FONT@"; font-size: 10pt; }}
 QWidget#glassRoot {{ background: transparent; }}
-QLabel#title {{ font-size: 11pt; font-weight: 600; }}
-QLabel#dim, QLabel.dim {{ color: {TEXT_DIM}; font-size: 9pt; }}
-QLabel#section {{ color: {TEXT_DIM}; font-size: 8.5pt; font-weight: 600; letter-spacing: 1px; }}
+QLabel {{ background: transparent; }}
+QLabel#title {{ font-size: 12pt; font-weight: 600; }}
+QLabel#dim {{ color: {TEXT_DIM}; font-size: 9pt; }}
+QLabel#section {{ color: {TEXT_DIM}; font-size: 9pt; font-weight: 600; padding: 6px 0 0 0; margin: 0; }}
+QLabel#big {{ font-size: 16pt; font-weight: 600; }}
+QLabel#good {{ color: {SUCCESS}; font-weight: 600; }}
+QLabel#warn {{ color: {WARNING}; font-weight: 600; }}
+QLabel#stepNum {{
+  background: {SURFACE_RAISED}; border: 1px solid {BORDER}; border-radius: 12px;
+  color: {TEXT_DIM}; font-weight: 600; font-size: 9pt;
+}}
+
 QPushButton {{
-  background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.30);
-  border-top-color: rgba(255,255,255,0.55); border-bottom-color: rgba(255,255,255,0.16);
-  border-radius: 15px; padding: 6px 15px; min-height: 18px;
+  background: {SURFACE_RAISED}; border: 1px solid {BORDER}; border-radius: 6px;
+  padding: 5px 12px; min-height: 18px;
 }}
-QPushButton:hover {{ background: rgba(255,255,255,0.22); }}
-QPushButton:pressed {{ background: rgba(255,255,255,0.08); }}
-QPushButton:checked {{
-  background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 rgba(255,138,92,0.85), stop:1 rgba(255,79,139,0.85));
-  border: 1px solid rgba(255,255,255,0.55);
-}}
+QPushButton:hover {{ background: {SURFACE_HOVER}; }}
+QPushButton:pressed {{ background: {SURFACE}; }}
+QPushButton:disabled {{ color: #6b6b72; }}
+QPushButton:checked {{ background: #32394a; border-color: {ACCENT}; }}
+QPushButton:focus {{ outline: none; }}
 QPushButton#primary {{
-  background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {ACCENT_A}, stop:0.55 {ACCENT_B}, stop:1 {ACCENT_C});
-  border: 1px solid rgba(255,255,255,0.55); border-top-color: rgba(255,255,255,0.9);
-  font-weight: 600; padding: 7px 20px; border-radius: 16px;
+  background: {ACCENT}; border: 1px solid {ACCENT}; color: #ffffff; font-weight: 600; padding: 5px 16px;
 }}
-QPushButton#primary:hover {{ border: 1px solid #ffffff; }}
-QPushButton#chrome {{ background: transparent; border: none; padding: 2px 8px; font-size: 11pt; border-radius: 6px; }}
-QPushButton#chrome:hover {{ background: rgba(255,80,100,0.6); }}
-QPushButton#swatch {{ border-radius: 12px; padding: 0; min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px; }}
+QPushButton#primary:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; }}
+QPushButton#primary:pressed {{ background: {ACCENT_PRESSED}; }}
+QPushButton#primary:disabled {{ background: #2a3550; border-color: #2a3550; color: #8a93a8; }}
+QPushButton#chrome {{ background: transparent; border: none; padding: 4px; border-radius: 6px; }}
+QPushButton#chrome:hover {{ background: {SURFACE_HOVER}; }}
+QPushButton#swatch {{
+  border-radius: 12px; padding: 0; min-width: 24px; max-width: 24px; min-height: 24px; max-height: 24px;
+  border: 1px solid rgba(255,255,255,0.18);
+}}
 QPushButton#swatch:checked {{ border: 2px solid #ffffff; }}
-QSlider::groove:horizontal {{ height: 4px; background: rgba(255,255,255,0.22); border-radius: 2px; }}
-QSlider::sub-page:horizontal {{
-  background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #ff9a6b, stop:0.5 #ff5f9a, stop:1 #8f7bff); border-radius: 2px;
-}}
+
+QSlider::groove:horizontal {{ height: 4px; background: {BORDER}; border-radius: 2px; }}
+QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 2px; }}
 QSlider::handle:horizontal {{
-  background: #ffffff; width: 14px; height: 14px; margin: -6px 0; border-radius: 7px;
-  border: 1px solid rgba(0,0,0,0.15);
+  background: #ffffff; width: 14px; height: 14px; margin: -5px 0; border-radius: 7px; border: none;
 }}
+
 QSpinBox, QLineEdit, QComboBox {{
-  background: rgba(0,0,0,0.16); border: 1px solid rgba(255,255,255,0.22);
-  border-bottom-color: rgba(255,255,255,0.40);
-  border-radius: 10px; padding: 4px 8px; selection-background-color: {ACCENT_B};
+  background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 6px; padding: 4px 8px;
+  selection-background-color: {ACCENT}; min-height: 18px;
 }}
-QLineEdit:focus, QSpinBox:focus {{ border: 1px solid rgba(255,255,255,0.7); }}
-QFrame#card {{ background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); border-radius: 14px; }}
-QLabel#big {{ font-size: 17pt; font-weight: 700; }}
-QLabel#good {{ color: #8dffb8; font-weight: 600; }}
-QLabel#warn {{ color: #ffd36b; font-weight: 600; }}
-QComboBox QAbstractItemView {{ background: #2a2438; border: 1px solid rgba(255,255,255,0.25); }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.5); background: rgba(255,255,255,0.1); }}
-QCheckBox::indicator:checked {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {ACCENT_A}, stop:1 {ACCENT_B}); }}
-QTableWidget {{ background: rgba(0,0,0,0.12); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; gridline-color: rgba(255,255,255,0.08); }}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::down-arrow {{ image: url(@ICONS@/chevron-down.png); width: 12px; height: 12px; }}
+QComboBox QAbstractItemView {{
+  background: {SURFACE_RAISED}; border: 1px solid {BORDER}; selection-background-color: {ACCENT}; outline: none;
+}}
+QSpinBox {{ padding-right: 20px; }}
+QSpinBox::up-button, QSpinBox::down-button {{ border: none; width: 18px; background: transparent; }}
+QSpinBox::up-button {{ subcontrol-position: top right; }}
+QSpinBox::down-button {{ subcontrol-position: bottom right; }}
+QSpinBox::up-arrow {{ image: url(@ICONS@/chevron-up.png); width: 10px; height: 10px; }}
+QSpinBox::down-arrow {{ image: url(@ICONS@/chevron-down.png); width: 10px; height: 10px; }}
+
+QCheckBox {{ spacing: 8px; }}
+QCheckBox::indicator {{
+  width: 16px; height: 16px; border-radius: 4px; border: 1px solid #55555e; background: {SURFACE};
+}}
+QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; image: url(@ICONS@/check.png); }}
+
+QFrame#card {{ background: {SURFACE_RAISED}; border: 1px solid {BORDER}; border-radius: 8px; }}
+QTableWidget {{
+  background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 6px; gridline-color: {BORDER};
+  alternate-background-color: {SURFACE_RAISED};
+}}
 QHeaderView {{ background: transparent; }}
 QTableCornerButton::section {{ background: transparent; border: none; }}
-QHeaderView::section {{ background: rgba(255,255,255,0.10); border: none; padding: 4px; font-weight: 600; }}
+QHeaderView::section {{
+  background: {SURFACE_RAISED}; border: none; border-bottom: 1px solid {BORDER}; padding: 5px 8px; font-weight: 600;
+}}
 QScrollBar:vertical {{ background: transparent; width: 8px; }}
-QScrollBar::handle:vertical {{ background: rgba(255,255,255,0.3); border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: #4a4a52; border-radius: 4px; min-height: 30px; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
-QToolTip {{ background: #2a2438; color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; padding: 4px; }}
-QMenu {{ background: #2a2438; border: 1px solid rgba(255,255,255,0.25); border-radius: 8px; padding: 4px; }}
-QMenu::item {{ padding: 6px 18px; border-radius: 5px; }}
-QMenu::item:selected {{ background: rgba(255,255,255,0.15); }}
+QToolTip {{ background: {SURFACE_RAISED}; color: {TEXT}; border: 1px solid {BORDER}; border-radius: 4px; padding: 4px 6px; }}
+QMenu {{ background: {SURFACE_RAISED}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px; }}
+QMenu::item {{ padding: 6px 18px; border-radius: 4px; }}
+QMenu::item:selected {{ background: {ACCENT}; color: #ffffff; }}
+QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 6px; }}
 """
+
+_ICON_DIR: str | None = None
+
+
+def _icon_dir() -> str:
+    """Write the few icons the stylesheet references (check, chevrons) to a cache folder."""
+    global _ICON_DIR
+    if _ICON_DIR is None:
+        import tempfile
+        from . import icons
+        d = os.path.join(tempfile.gettempdir(), f"dragshift-ui-{os.getuid() if hasattr(os, 'getuid') else 0}")
+        os.makedirs(d, exist_ok=True)
+        icons.save_png("check", os.path.join(d, "check.png"), 16, "#ffffff", 2.6)
+        icons.save_png("chevron-down", os.path.join(d, "chevron-down.png"), 12, TEXT_DIM, 2.2)
+        icons.save_png("chevron-up", os.path.join(d, "chevron-up.png"), 12, TEXT_DIM, 2.2)
+        _ICON_DIR = d.replace("\\", "/")
+    return _ICON_DIR
 
 
 def qss() -> str:
     """The stylesheet, with a font family that is really installed (see util.ui_family)."""
     from .util import ui_family
-    return _QSS.replace("@FONT@", ui_family(False))
+    return _QSS.replace("@FONT@", ui_family(False)).replace("@ICONS@", _icon_dir())
 
 
 def __getattr__(name):        # keep `glass.QSS` working
@@ -188,37 +196,6 @@ def __getattr__(name):        # keep `glass.QSS` working
         return qss()
     raise AttributeError(name)
 
-
-
-# ---------------------------------------------------------------- Windows acrylic
-class _ACCENT(ctypes.Structure):
-    _fields_ = [("AccentState", ctypes.c_int), ("AccentFlags", ctypes.c_int),
-                ("GradientColor", ctypes.c_uint), ("AnimationId", ctypes.c_int)]
-
-
-class _WCAD(ctypes.Structure):
-    _fields_ = [("Attribute", ctypes.c_int), ("Data", ctypes.c_void_p), ("SizeOfData", ctypes.c_size_t)]
-
-
-def enable_acrylic(hwnd: int, tint_abgr: int = 0x40281E28) -> bool:
-    """Real blur-behind for a frameless translucent window (Windows 10/11).
-    Returns False elsewhere so callers can fall back to a painted frost."""
-    if sys.platform != "win32":
-        return False
-    try:
-        user32 = ctypes.windll.user32
-        accent = _ACCENT(4, 2, tint_abgr, 0)  # 4 = ACCENT_ENABLE_ACRYLICBLURBEHIND
-        data = _WCAD(19, ctypes.cast(ctypes.pointer(accent), ctypes.c_void_p), ctypes.sizeof(accent))
-        ok = bool(user32.SetWindowCompositionAttribute(ctypes.c_void_p(hwnd), ctypes.byref(data)))
-        try:  # rounded corners on Windows 11
-            pref = ctypes.c_int(2)  # DWMWCP_ROUND
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 33,
-                                                       ctypes.byref(pref), ctypes.sizeof(pref))
-        except Exception:
-            pass
-        return ok
-    except Exception:
-        return False
 
 
 def qimage_from_pil(im) -> QImage:

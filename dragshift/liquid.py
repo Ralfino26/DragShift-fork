@@ -2,7 +2,7 @@
 
 Apple's Liquid Glass is not frosted acrylic. The look comes from:
   * lensing: light bends strongly in a thin bezel at the edges, the middle stays clear
-  * chromatic dispersion in that bezel (R, G and B bend by different amounts) -> rainbow fringe
+  * a trace of chromatic dispersion in that bezel (R, G and B bend by slightly different amounts)
   * a specular rim that follows the shape, brightest on the side facing the light
   * a light blur + saturation boost of what's behind, and a tint that adapts to it
 
@@ -21,10 +21,10 @@ from PIL import Image, ImageEnhance, ImageFilter
 class GlassStyle:
     bezel: float = 22.0        # px width of the curved edge where light bends
     strength: float = 16.0     # max displacement in px at the very edge
-    dispersion: float = 0.32   # extra bend for blue vs red (rainbow fringe)
+    dispersion: float = 0.06   # extra bend for blue vs red (kept subtle: no rainbow fringe)
     blur: float = 2.2          # Liquid Glass stays fairly clear
-    saturation: float = 1.45
-    spec: float = 0.95         # specular rim intensity
+    saturation: float = 1.15
+    spec: float = 0.6          # specular rim intensity
     light: tuple[float, float] = (-0.55, -0.83)  # direction *towards* the light (top-left)
 
 
@@ -132,7 +132,7 @@ def render(backdrop: Image.Image, sdf: np.ndarray, style: GlassStyle = GlassStyl
 
     # adaptive tint keeps text legible on any wallpaper
     if tint is None:
-        tint = (236, 232, 246, 0.14) if is_light else (18, 14, 30, 0.26)
+        tint = (240, 240, 242, 0.30) if is_light else (22, 22, 26, 0.42)
     tr, tg, tb, ta = tint
     out = out * (1 - ta) + np.array([tr, tg, tb], np.float32) * ta
 
@@ -143,7 +143,7 @@ def render(backdrop: Image.Image, sdf: np.ndarray, style: GlassStyle = GlassStyl
         out -= (np.clip(1 - depth / 1.6, 0, 1) * (alpha > 0))[..., None] * 40
     else:
         # inner bezel glow (light gathering in the curved edge)
-        out += (profile ** 2)[..., None] * 38
+        out += (profile ** 2)[..., None] * 14
 
     # specular rim: thin bright line, strongest where the edge faces the light
     lx, ly = style.light

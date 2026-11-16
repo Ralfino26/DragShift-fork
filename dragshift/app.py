@@ -1,4 +1,4 @@
-"""DragShift: Shift+drag any file to convert or edit it from a radial liquid-glass menu."""
+"""DragShift: Shift+drag any file to convert or edit it from a radial menu."""
 from __future__ import annotations
 
 import json
@@ -29,20 +29,21 @@ IS_MAC = sys.platform == "darwin"
 from .handoff import ipc_name
 IPC_NAME = ipc_name()
 
-GLYPHS = {"Compress": "⇲", "Metadata": "ⓘ", "Redact": "▮", "Crop": "⌗", "Edit": "☼",
-          "Annotate": "✎", "Add BG": "▣", "Resize": "⤢", "Split": "✂", "Rotate": "⟳",
-          "Merge": "⧉", "Protect": "⚿", "Extract": "⧈"}
+TOOL_ICONS = {"Compress": "compress", "Metadata": "metadata", "Redact": "redact", "Crop": "crop",
+              "Edit": "edit", "Annotate": "annotate", "Add BG": "add-bg", "Resize": "resize",
+              "Split": "split", "Rotate": "rotate-cw", "Merge": "merge", "Protect": "protect",
+              "Extract": "extract"}
 
 HINTS = {
     "Compress": "Shrink file size", "Metadata": "View · remove GPS", "Redact": "Hide private info",
     "Crop": "Trim to a ratio", "Edit": "Light · colour · rotate", "Annotate": "Arrows · text · steps",
-    "Add BG": "Gradient backdrop", "Resize": "Change dimensions", "Split": "One PDF per page",
+    "Add BG": "Place on a backdrop", "Resize": "Change dimensions", "Split": "One PDF per page",
     "Rotate": "Turn pages 90°", "Merge": "Join into one PDF", "Protect": "Add a password",
     "Extract": "Save embedded images",
 }
-FORMAT_HINTS = {"JPG": "Small, universal", "PNG": "Lossless · transparency", "WEBP": "Smallest for web",
-                "HEIC": "iPhone format", "TIFF": "Print · archival", "AVIF": "Next-gen, tiny",
-                "BMP": "Uncompressed", "PDF": "Document", "ICO": "Windows icon", "GIF": "Legacy web",
+FORMAT_HINTS = {"JPG": "Small, universal", "PNG": "Lossless · transparency", "WEBP": "Small, for the web",
+                "HEIC": "Apple photo format", "TIFF": "Print · archival", "AVIF": "Very small, modern",
+                "BMP": "Uncompressed", "PDF": "Document", "ICO": "Windows icon", "GIF": "256 colours",
                 "DOCX": "Editable Word", "TXT": "Plain text"}
 
 IMAGE_TOOLS = ["Compress", "Resize", "Crop", "Edit", "Annotate", "Redact", "Add BG", "Metadata"]
@@ -120,7 +121,8 @@ def make_icon() -> QIcon:
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(glass.iridescent_pen(QPointF(32, 32), 7, 255))
+    from PySide6.QtGui import QPen
+    p.setPen(QPen(QColor(glass.ACCENT), 7))
     p.drawEllipse(QPointF(32, 32), 24, 24)
     p.end()
     return QIcon(pm)
@@ -138,6 +140,7 @@ class DragShiftApp(QObject):
         self.toasts = ToastStack()
         self.menu = RadialMenu(self.build_rings, self.describe)
         self.menu.activated.connect(self.run_item)
+        self.menu.switch_key = self.trigger_label_short()
 
         # the watcher only manages menus it opened (drag mode); click-mode menus (tray, right-click,
         # Send To) must not be closed just because no mouse button is held
@@ -158,7 +161,7 @@ class DragShiftApp(QObject):
         self.server.newConnection.connect(self._ipc)
 
         self.tray = QSystemTrayIcon(make_tray_icon(), self)
-        self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
+        self.tray.setToolTip(f"{APP_NAME}: press {self.trigger_label()} while dragging a file")
         m = QMenu()
         m.setStyleSheet(glass.QSS)
         self.act_enabled = QAction("Enabled", m, checkable=True, checked=True)
@@ -168,7 +171,7 @@ class DragShiftApp(QObject):
         m.addSeparator()
         m.addAction("Settings…", self.open_settings)
         m.addAction("How to use", self.show_welcome)
-        m.addAction("Tip the developer ♥", lambda: QDesktopServices.openUrl(QUrl(TIP_URL)))
+        m.addAction("Tip the developer…", lambda: QDesktopServices.openUrl(QUrl(TIP_URL)))
         m.addSeparator()
         m.addAction(f"Quit {APP_NAME}", self.qapp.quit)
         self.tray_menu = m
@@ -178,6 +181,10 @@ class DragShiftApp(QObject):
 
     def trigger_label(self) -> str:
         return dict(TRIGGERS).get(self.settings.get("trigger"), "Shift")
+
+    def trigger_label_short(self) -> str:
+        """Key name without the macOS symbol, for the menu hub ("Shift for Tools")."""
+        return self.trigger_label().split(" ")[0]
 
     # ------------------------------------------------------------ IPC
     def _ipc(self):
@@ -247,10 +254,10 @@ class DragShiftApp(QObject):
             convert_items.append(Item(t, key=f"convert:{t}", hint=hint))
         rings: dict[str, list[Item]] = {"Convert": convert_items}
         if cat == "image":
-            rings["Tools"] = [Item(n, GLYPHS[n], key=f"tool:{n}", hint=HINTS[n]) for n in IMAGE_TOOLS]
+            rings["Tools"] = [Item(n, TOOL_ICONS[n], key=f"tool:{n}", hint=HINTS[n]) for n in IMAGE_TOOLS]
         elif cat == "pdf":
             names = PDF_TOOLS[:3] + (["Merge"] if len(same) > 1 else []) + PDF_TOOLS[3:]
-            rings["Tools"] = [Item(n, GLYPHS[n], key=f"tool:{n}", hint=HINTS[n]) for n in names]
+            rings["Tools"] = [Item(n, TOOL_ICONS[n], key=f"tool:{n}", hint=HINTS[n]) for n in names]
         return rings
 
     # ------------------------------------------------------------ actions
@@ -364,7 +371,8 @@ class DragShiftApp(QObject):
 
     def _settings_changed(self):
         self.watcher.set_key(self.settings.get("trigger"))
-        self.tray.setToolTip(f"{APP_NAME} — press {self.trigger_label()} while dragging a file")
+        self.menu.switch_key = self.trigger_label_short()
+        self.tray.setToolTip(f"{APP_NAME}: press {self.trigger_label()} while dragging a file")
 
     def show_welcome(self):
         self.open_window(WelcomeWindow(self.settings, self.trigger_label()))
@@ -473,7 +481,9 @@ def main(argv: list[str] | None = None) -> int:
     elif "--quiet" not in argv:
         QTimer.singleShot(400, lambda: app.toasts.info(
             "DragShift is running", f"Drag any file, then press {app.trigger_label()}."))
-    return qapp.exec()
+    code = qapp.exec()
+    QThreadPool.globalInstance().waitForDone(5000)   # let background renders/saves finish first
+    return code
 
 
 def check_text_renders():
@@ -518,16 +528,24 @@ def selftest() -> int:
             menu = RadialMenu(lambda p: {"Convert": [Item("PNG")]}, lambda p: "1 KB")
             menu._load([str(src)])
             n = lambda *a, **k: None
-            for w in (tools.CropWindow(str(src), n), tools.AddBgWindow(str(src), n), tools.EditWindow(str(src), n),
-                      tools.AnnotateWindow(str(src), n), tools.RedactWindow(str(src), n),
-                      tools.MetadataWindow(str(src), n), tools.CompressWindow([str(src)], n),
-                      tools.ResizeWindow([str(src)], n), tools.ProtectWindow(str(pdf), n)):
+            # keep references (as the app does in open_window): a parentless window whose Python
+            # wrapper dies is deleted at once, under its own pending WA_DeleteOnClose deletion
+            wins = [tools.CropWindow(str(src), n), tools.AddBgWindow(str(src), n), tools.EditWindow(str(src), n),
+                    tools.AnnotateWindow(str(src), n), tools.RedactWindow(str(src), n),
+                    tools.MetadataWindow(str(src), n), tools.CompressWindow([str(src)], n),
+                    tools.ResizeWindow([str(src)], n), tools.ProtectWindow(str(pdf), n)]
+            for w in wins:
                 w.close()
-            ToastStack().info("ok", "ok").dismiss()
+            toasts = ToastStack()
+            toasts.info("ok", "ok").dismiss()
             check_text_renders()
-        print("SELFTEST OK")
+            QThreadPool.globalInstance().waitForDone(15000)   # don't exit under a running render
+            from PySide6.QtCore import QCoreApplication, QEvent
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+            del wins, toasts
+        print("SELFTEST OK", flush=True)
         return 0
     except Exception:
         traceback.print_exc()
-        print("SELFTEST FAILED")
+        print("SELFTEST FAILED", flush=True)
         return 1

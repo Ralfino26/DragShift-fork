@@ -14,7 +14,7 @@ class Result:
     detail: str
     outs: list[Path]
     srcs: list[Path] = field(default_factory=list)
-    good: str = ""     # highlighted figure, e.g. "−75%"
+    good: str = ""     # key figure shown after the title, e.g. "75% smaller"
 
     @property
     def thumb(self) -> Path | None:
@@ -43,7 +43,7 @@ def pages(path: Path) -> int | None:
 
 
 def size_change(before: int, after: int) -> tuple[str, str]:
-    """('2.4 MB → 610 KB', '75% smaller') — second part empty if no meaningful change."""
+    """('2.4 MB → 610 KB', '75% smaller'). The second part is empty if no meaningful change."""
     text = f"{human_size(before)} → {human_size(after)}"
     if before <= 0:
         return text, ""
@@ -117,12 +117,10 @@ def summarize(action: str, srcs: list, outs: list, extra: str = "") -> Result:
         return Result("Annotated", f"{extra} · {o0.name}" if extra else o0.name, outs, srcs)
 
     if name == "Redact":
-        return Result("Redacted", f"{extra} · {o0.name}" if extra else o0.name, outs, srcs,
-                      good="burned into pixels")
+        return Result("Redacted", f"{extra} · {o0.name}" if extra else o0.name, outs, srcs)
 
     if name == "Metadata":
-        return Result("Metadata removed", f"{extra} · {o0.name}" if extra else o0.name, outs, srcs,
-                      good="private copy")
+        return Result("Metadata removed", f"{extra} · {o0.name}" if extra else o0.name, outs, srcs)
 
     if name == "Split":
         return Result(f"Split into {len(outs)} PDFs", f"{o0.name} …", outs, srcs)
@@ -136,7 +134,7 @@ def summarize(action: str, srcs: list, outs: list, extra: str = "") -> Result:
         return Result("Rotated 90°", f"{n} page{'s' if n != 1 else ''} · {o0.name}", outs, srcs)
 
     if name == "Protect":
-        return Result("Password protected", f"AES-256 · {o0.name}", outs, srcs, good="encrypted")
+        return Result("Password protected", f"AES-256 · {o0.name}", outs, srcs)
 
     if name == "Extract":
         return Result(f"Extracted {len(outs)} image{'s' if len(outs) != 1 else ''}",

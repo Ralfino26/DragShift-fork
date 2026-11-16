@@ -273,8 +273,8 @@ def drive_crop():
 def drive_edit():
     w = tool_win("Edit.*")
     time.sleep(0.4)
-    wk.click_title(w, "✦ Auto", 0.6)
-    wk.click_title(w, "⟳", 0.6)
+    wk.click_title(w, "Auto", 0.6)
+    wk.click_title(w, "Rotate right", 0.6)
     wk.click_title(w, "Save")
 
 
@@ -295,7 +295,7 @@ def drive_annotate():
     pyautogui.mouseDown()
     wk.glide(cx + 120, cy - 60, 0.5)
     pyautogui.mouseUp()
-    wk.click_title(w, "① Step", 0.3)
+    wk.click_title(w, "Step", 0.3)
     wk.glide(cx + 160, cy - 80)
     pyautogui.click()
     time.sleep(0.4)

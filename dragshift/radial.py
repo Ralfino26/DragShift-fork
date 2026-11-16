@@ -16,14 +16,14 @@ from PySide6.QtGui import (QColor, QCursor, QFont, QGuiApplication, QImage, QPai
                            QPainterPath, QPen, QPixmap, QRadialGradient)
 from PySide6.QtWidgets import QWidget
 
-from . import glass
+from . import glass, icons
 from .util import ui_family
 
 
 @dataclass
 class Item:
     label: str
-    glyph: str = ""
+    icon: str = ""       # name in icons.ICONS; empty for format petals (label only)
     run: Callable[[list[str]], None] | None = None
     key: str = ""
     hint: str = ""
@@ -47,6 +47,20 @@ def sector_path(c: QPointF, r0: float, r1: float, a0: float, a1: float) -> QPain
     path.arcTo(inner, a1, -(a1 - a0))
     path.closeSubpath()
     return path
+
+
+def rounded_sector_path(c: QPointF, r0: float, r1: float, a0: float, a1: float,
+                        rr: float = CORNER) -> QPainterPath:
+    """Sector with rounded corners, matching the glass shape (liquid.sdf_ring_sector)."""
+    from PySide6.QtGui import QPainterPathStroker
+    mid_r = (r0 + r1) / 2
+    d = math.degrees(math.asin(min(0.99, rr / max(1.0, mid_r))))
+    core = sector_path(c, r0 + rr, r1 - rr, a0 + d, a1 - d)
+    st = QPainterPathStroker()
+    st.setWidth(2 * rr)
+    st.setJoinStyle(Qt.RoundJoin)
+    st.setCapStyle(Qt.RoundCap)
+    return st.createStroke(core).united(core).simplified()
 
 
 def angles(n: int, i: int) -> tuple[float, float]:
@@ -124,14 +138,15 @@ class RadialMenu(QWidget):
         self.spring: list[float] = []   # per-petal hover amount 0..1 (eased every frame)
         self.hub_spring = 0.0
 
-        self.anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=190,
-                                      easingCurve=QEasingCurve.OutBack)
+        self.anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=150,
+                                      easingCurve=QEasingCurve.OutCubic)
         self.anim.valueChanged.connect(self._set_t)
         self.swap_anim = QVariantAnimation(self, startValue=0.0, endValue=1.0, duration=220,
                                            easingCurve=QEasingCurve.OutCubic)
         self.swap_anim.valueChanged.connect(self._set_swap)
         self.hub_timer = QTimer(self, singleShot=True, interval=420, timeout=self.next_ring)
-        self.frame = QTimer(self, interval=16, timeout=self._tick)   # 60 fps springs
+        self.frame = QTimer(self, interval=16, timeout=self._tick)   # 60 fps hover easing
+        self.switch_key = "Shift"   # shown in the hub: "<key> for Tools"
 
     # ------------------------------------------------------------ show / hide
     def popup(self, pos: QPoint | None = None, paths: list[str] | None = None):
@@ -420,8 +435,8 @@ class RadialMenu(QWidget):
     # ------------------------------------------------------------ painting
     def _text_colors(self) -> tuple[QColor, QColor, QColor]:
         if self.is_light:
-            return QColor(28, 20, 44), QColor(28, 20, 44, 170), QColor(255, 255, 255, 120)
-        return QColor(255, 255, 255), QColor(255, 255, 255, 190), QColor(0, 0, 0, 110)
+            return QColor(24, 24, 28), QColor(24, 24, 28, 175), QColor(255, 255, 255, 90)
+        return QColor(255, 255, 255), QColor(255, 255, 255, 185), QColor(0, 0, 0, 80)
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -432,7 +447,7 @@ class RadialMenu(QWidget):
         t = self._t
         p.setOpacity(min(1.0, max(0.0, t * 1.5)))
         p.translate(c)
-        s = 0.80 + 0.20 * t
+        s = 0.94 + 0.06 * t
         p.scale(s, s)
         p.translate(-c)
 
@@ -461,41 +476,28 @@ class RadialMenu(QWidget):
     def _paint_fallback(self, p: QPainter, c: QPointF, n: int):
         hub = QPainterPath()
         hub.addEllipse(c, R_HUB, R_HUB)
-        glass.paint_glass(p, hub, self.backdrop, QPointF(0, 0), tint=QColor(22, 18, 34, 80),
-                          rainbow_alpha=150, highlight=1.3)
+        glass.paint_glass(p, hub, self.backdrop, QPointF(0, 0), tint=glass.glass_tint(120))
         for i in range(n):
             a0, a1 = angles(n, i)
             glass.paint_glass(p, sector_path(c, R_IN, R_OUT, a0, a1), self.backdrop, QPointF(0, 0),
-                              tint=QColor(22, 18, 34, 62), rainbow_alpha=140)
+                              tint=glass.glass_tint(100))
 
     def _paint_hover(self, p: QPainter, c: QPointF, a0: float, a1: float, h: float, img: QImage | None):
         mid = math.radians((a0 + a1) / 2)
-        r_mid = (R_IN + R_OUT) / 2
-        pc = QPointF(c.x() + r_mid * math.cos(mid), c.y() - r_mid * math.sin(mid))
-        k = 1 + 0.07 * h                     # elastic "pop" towards the cursor
-        push = 6 * h
+        push = 0.0                           # the accent fill sits exactly on the glass slice
         off = QPointF(push * math.cos(mid), -push * math.sin(mid))
-        path = sector_path(c, R_IN - 1, R_OUT + 1, a0, a1)
+        path = rounded_sector_path(c, R_IN, R_OUT, a0, a1)
         p.save()
-        p.translate(pc + off)
-        p.scale(k, k)
-        p.translate(-pc)
+        p.translate(off)
         if img is not None:
             p.save()
             p.setClipPath(path)
             p.drawImage(0, 0, img)
             p.restore()
-        # light blooming up from underneath the cursor
-        glow_c = self.cursor_pos - off
-        g = QRadialGradient(glow_c, 120)
-        g.setColorAt(0.0, QColor(255, 196, 120, int(150 * h)))
-        g.setColorAt(0.45, QColor(255, 90, 150, int(95 * h)))
-        g.setColorAt(1.0, QColor(130, 100, 255, int(40 * h)))
-        p.fillPath(path, g)
-        # brighter specular rim + iridescent edge while hovered
-        p.setPen(QPen(QColor(255, 255, 255, int(170 * h)), 1.3))
-        p.drawPath(path)
-        p.setPen(glass.iridescent_pen(c, 2.2, int(230 * h), angle=(a0 + a1) / 2))
+        fill = QColor(glass.ACCENT)
+        fill.setAlphaF(0.88 * h)
+        p.setPen(QPen(QColor(255, 255, 255, int(90 * h)), 1.0))
+        p.setBrush(fill)
         p.drawPath(path)
         p.restore()
 
@@ -503,27 +505,27 @@ class RadialMenu(QWidget):
         hs = self.hub_spring
         if hs > 0.001:
             g = QRadialGradient(c, R_HUB)
-            g.setColorAt(0, QColor(255, 255, 255, int(70 * hs)))
-            g.setColorAt(1, QColor(255, 255, 255, int(20 * hs)))
+            g.setColorAt(0, QColor(255, 255, 255, int(40 * hs)))
+            g.setColorAt(1, QColor(255, 255, 255, int(16 * hs)))
             p.setPen(Qt.NoPen)
             p.setBrush(g)
             p.drawEllipse(c, R_HUB, R_HUB)
-        p.setPen(glass.iridescent_pen(c, 1.2, 150, angle=60))
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1.0))
         p.setBrush(Qt.NoBrush)
         p.drawEllipse(c, R_HUB - 0.5, R_HUB - 0.5)
 
         items = self.items
         hov = items[self.hover] if 0 <= self.hover < len(items) else None
         if hov is not None:
-            top, sub = hov.label if not hov.glyph else hov.label.title(), hov.hint or ""
+            top, sub = hov.label, hov.hint or ""
         else:
             ring_name = self.ring_names[self.ring_idx] if self.ring_names else ""
             top = self.hub_text
             if len(self.ring_names) > 1:
                 other = self.ring_names[(self.ring_idx + 1) % len(self.ring_names)]
-                sub = f"⇧ {other.upper()}"
+                sub = f"{self.switch_key} for {other}"
             else:
-                sub = ring_name.upper()
+                sub = ring_name
         f = QFont(ui_family(True))
         f.setPixelSize(14)
         f.setBold(True)
@@ -548,26 +550,23 @@ class RadialMenu(QWidget):
     def _petal_label(self, p: QPainter, c: QPointF, it: Item, ang: float, r: float,
                      h: float, fg: QColor, shadow_col: QColor):
         rad = math.radians(ang)
-        push = 6 * h
+        push = 0.0
         pt = QPointF(c.x() + (r + push) * math.cos(rad), c.y() - (r + push) * math.sin(rad))
         p.save()
         p.setOpacity(p.opacity() * (0.25 + 0.75 * self._swap))
-        col = QColor(255, 255, 255) if h > 0.5 else fg   # hovered petal is warm-lit: white text
+        col = QColor(255, 255, 255) if h > 0.5 else fg   # hovered slice is accent-filled: white text
+        if h > 0.5:
+            shadow_col = None
         f = QFont(ui_family(True))
-        if it.glyph:
-            f.setPixelSize(int(18 + 3 * h))
+        if it.icon:
+            icons.paint(p, it.icon, QRectF(pt.x() - 10, pt.y() - 22, 20, 20), col, 1.8)
+            f.setPixelSize(12)
+            f.setWeight(QFont.DemiBold)
             p.setFont(f)
-            self._text(p, QRectF(pt.x() - 30, pt.y() - 24, 60, 24), it.glyph, col, shadow_col,
-                       Qt.AlignHCenter | Qt.AlignBottom)
-            f.setPixelSize(10)
-            f.setBold(True)
-            f.setLetterSpacing(QFont.AbsoluteSpacing, 0.7)
-            p.setFont(f)
-            self._text(p, QRectF(pt.x() - 42, pt.y() + 1, 84, 16), it.label.upper(), col, shadow_col)
+            self._text(p, QRectF(pt.x() - 42, pt.y() + 2, 84, 16), it.label, col, shadow_col)
         else:
-            f.setPixelSize(int(14 + 2 * h))
-            f.setBold(True)
-            f.setLetterSpacing(QFont.AbsoluteSpacing, 0.9)
+            f.setPixelSize(15)
+            f.setWeight(QFont.DemiBold)
             p.setFont(f)
             self._text(p, QRectF(pt.x() - 42, pt.y() - 12, 84, 24), it.label, col, shadow_col)
         p.restore()

@@ -4,7 +4,7 @@ VSVersionInfo(
   kids=[
     StringFileInfo([StringTable('040904B0', [
       StringStruct('CompanyName', 'DragShift'),
-      StringStruct('FileDescription', 'DragShift — Shift+drag file converter'),
+      StringStruct('FileDescription', 'DragShift: Shift+drag file converter'),
       StringStruct('FileVersion', '1.1.0'),
       StringStruct('InternalName', 'DragShift'),
       StringStruct('OriginalFilename', 'DragShift.exe'),
